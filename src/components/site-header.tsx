@@ -3,6 +3,7 @@ import { FileStack } from "lucide-react";
 
 const navGroups = [
   { label: "Organize", href: "/#organize" },
+  { label: "Optimize", href: "/#optimize" },
   { label: "Convert", href: "/#convert-to" },
   { label: "Edit", href: "/#edit" },
   { label: "Security", href: "/#security" },
@@ -29,7 +30,7 @@ export function SiteHeader() {
         </nav>
         <div className="flex items-center gap-2">
           <span className="hidden rounded-full border border-border px-3 py-1 text-xs text-muted-foreground sm:inline-block">
-            🔒 100% diproses di browser Anda
+            🔒 File Anda tidak pernah diupload
           </span>
         </div>
       </div>

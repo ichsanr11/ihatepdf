@@ -4,11 +4,11 @@ import { tools, categoryLabels, type ToolCategory } from "@/lib/tools";
 
 const categoryOrder: ToolCategory[] = [
   "organize",
+  "optimize",
   "convert-to",
   "convert-from",
   "edit",
   "security",
-  "optimize",
 ];
 
 export default function HomePage() {

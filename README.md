@@ -11,8 +11,9 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 - [qpdf.js](https://github.com/j3k0/qpdf.js) (QPDF di-compile ke WebAssembly, jalan di Web Worker) — enkripsi/dekripsi PDF asli (Protect/Unlock), satu-satunya hal yang tidak bisa dilakukan pdf-lib
 - [tesseract.js](https://github.com/naptha/tesseract.js) (Tesseract OCR di-compile ke WebAssembly, jalan di Web Worker) — OCR PDF hasil scan jadi bisa dicari/disalin teksnya
 - @dnd-kit — drag & drop reorder file/halaman
+- Daftar kata Indonesia & Inggris (top 10k tersering, dari [`most-common-words-by-language`](https://www.npmjs.com/package/most-common-words-by-language) / [FrequencyWords](https://github.com/hermitdave/FrequencyWords), MIT) — klasifikasi kata untuk Dictionary ID-EN
 
-## Tool yang tersedia (15)
+## Tool yang tersedia (17)
 
 | Kategori | Tool | Rute |
 |---|---|---|
@@ -29,8 +30,10 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 | Convert from PDF | PDF to JPG | `/tools/pdf-to-jpg` |
 | Edit | Add Watermark | `/tools/watermark-pdf` |
 | Edit | Add Page Numbers | `/tools/page-numbers` |
+| Security | Sign PDF | `/tools/sign-pdf` |
 | Security | Protect PDF | `/tools/protect-pdf` |
 | Security | Unlock PDF | `/tools/unlock-pdf` |
+| Bahasa | Dictionary ID-EN | `/tools/dictionary-id-en` |
 
 Semua rute di atas sudah diuji end-to-end (upload → proses → download, cek console error) dengan Playwright terhadap dev server sungguhan — bukan cuma lolos build.
 
@@ -41,6 +44,19 @@ PRD aslinya menandai Compress/Repair/OCR sebagai proses server (Ghostscript, Tes
 - **Compress PDF** — bukan re-render seluruh halaman jadi gambar (itu akan merusak teks vector). Tool ini mencari setiap gambar yang di-embed di dalam PDF — baik JPEG (`DCTDecode`) maupun raw bitmap `FlateDecode` (DeviceGray/DeviceRGB 8bpc, umum untuk screenshot/"print to PDF"/gambar asal PNG) — meng-kompres ulang lewat `<canvas>` di level kualitas/resolusi pilihan, lalu menaruh kembali bytes yang lebih kecil ke object PDF yang sama. Gambar dengan soft mask (transparansi) tetap ikut dikompres (viewer me-resample mask-nya independen, sesuai ISO 32000-2 §8.9.6); yang dilewati hanya gambar dengan stencil/color-key `Mask`, Indexed/CMYK/ICC color space, atau filter berantai, karena berisiko rusak kalau ikut diproses. Teks & vector tidak disentuh sama sekali. Ada juga mode "Target ukuran maksimum" (mis. ≤10MB) yang mencoba beberapa tingkat kompresi berurutan sampai tercapai. PDF yang isinya teks murni (tanpa gambar) wajar tidak banyak mengecil — itu bukan bug, tapi cara kerja tool ini didokumentasikan di UI-nya sendiri.
 - **Repair PDF** — parse file selenggang mungkin (skip object yang rusak alih-alih berhenti), lalu tulis ulang strukturnya dari nol. Efektif untuk xref table/struktur yang korup; tidak bisa merekonstruksi data yang memang hilang/terpotong.
 - **OCR PDF** — setiap halaman di-render jadi gambar, dibaca lewat Tesseract (WASM, jalan di Web Worker), lalu digabung jadi satu PDF baru berisi gambar halaman + lapisan teks tak terlihat yang posisinya presisi (fitur PDF-output bawaan Tesseract sendiri, bukan hasil hitung manual). Hasilnya: PDF yang teksnya bisa di-select & dicari.
+
+### Sign PDF
+
+Upload PDF, lalu **tambahkan satu atau beberapa tanda tangan** ("+ Tambah Tanda Tangan") — misalnya tanda tangan dua pihak berbeda di halaman yang sama, atau paraf di tiap halaman plus tanda tangan penuh di halaman terakhir. Tiap tanda tangan independen: gambar sendiri, diseret & diubah ukuran sendiri (posisi/ukuran disimpan sebagai persentase terhadap halaman, bukan pixel, supaya tetap presisi walau halaman ukurannya beda-beda), dan halaman target sendiri (satu halaman tertentu atau "semua halaman") lewat dropdown di kartu daftar tanda tangan. Tombol Terapkan menempelkan semuanya sekaligus via `page.drawImage()` dari pdf-lib dalam satu dokumen hasil. Ada juga opsi **"Hapus latar belakang"** per tanda tangan untuk foto/gambar yang masih punya latar — warna latar dideteksi otomatis dari sampel pojok gambar (bukan diasumsikan putih), lalu piksel yang mirip warna itu dibuat transparan lewat `<canvas>` berdasarkan jarak warna (dengan falloff halus di tepi), jadi berfungsi untuk latar putih, off-white, abu-abu muda, atau tint warna lain sekalipun. Ini visual signature saja (sesuai PRD §3.6), bukan tanda tangan digital bersertifikat yang punya kekuatan hukum.
+
+### Dictionary ID-EN — bukan tool PDF, tapi tool teks
+
+Satu-satunya tool di luar kategori PDF: tempel paragraf campuran Indonesia-Inggris, klik Generate, kata bahasa Inggris otomatis dicetak miring sementara kata Indonesia dibiarkan apa adanya. Cara kerjanya (`src/lib/dictionary/`):
+
+1. **Tokenize** teks jadi kata + non-kata (spasi/tanda baca), supaya teks asli bisa direkonstruksi persis.
+2. **Klasifikasi tiap kata**: dicek dulu ke daftar 10k kata Indonesia tersering (menang kalau ada — ini yang membuat kata serapan resmi seperti "internet"/"video"/"data" tetap tidak dicetak miring, sesuai konvensi penulisan Indonesia yang sebenarnya), baru kalau tidak ketemu dicek ke daftar 10k kata Inggris tersering. Kata yang tidak ada di keduanya (nama orang, istilah teknis, typo) ditandai "belum dikenali" — **tidak ditebak otomatis**, supaya tidak salah cetak miring.
+3. Tiap kata di hasil bisa **diklik untuk toggle** miring/tidak secara manual, termasuk yang "belum dikenali".
+4. **Salin hasil** dalam 2 format: HTML asli (`<i>`) via Clipboard API supaya kalau di-paste ke Word/Google Docs beneran jadi italic, atau markdown (`*kata*`) untuk tempat yang tidak menerima rich paste (Slack, Notion, dll).
 
 ## Privasi
 
@@ -65,8 +81,11 @@ src/
   app/tools/<slug>/page.tsx        # satu halaman per tool
   components/                       # UI + komponen bersama (dropzone, grid thumbnail, dll)
   hooks/use-pdf-thumbnails.ts       # render halaman PDF jadi thumbnail untuk grid pemilih
+  hooks/use-pdf-pages.ts            # render thumbnail + render resolusi tinggi on-demand (dipakai Sign PDF)
   lib/pdf/*.ts                      # semua logic pdf-lib/pdfjs/qpdf/tesseract, terpisah dari UI
+  lib/dictionary/*.ts               # tokenizer + classifier + export untuk Dictionary ID-EN
   lib/tools.ts                      # katalog tool (dipakai landing page & header halaman tool)
+  data/dict/*.json                  # daftar 10k kata ID & EN tersering, di-vendor statis (lihat SOURCE.md)
 scripts/copy-qpdf-assets.mjs        # postinstall: salin worker+wasm qpdf.js ke public/qpdf/
 scripts/copy-tesseract-assets.mjs   # postinstall: salin worker+wasm tesseract.js ke public/tesseract/
 ```
@@ -77,6 +96,6 @@ Sesuai keputusan scope "client-side only" di PRD §10 Fase 1, belum diimplementa
 
 - **Convert Office (Word/Excel/PPT) ↔ PDF, HTML to PDF** — butuh LibreOffice headless di server, tidak ada padanan client-side yang genuine.
 - **Auth, dashboard riwayat file, subscription/payment, multi-bahasa** — bagian platform non-tool di PRD §3.7 & §8, butuh Supabase + backend.
-- **Sign PDF, Redact PDF, Compare PDF, Crop PDF, Edit PDF (teks/gambar bebas)** — bisa dibangun client-side juga, belum masuk batch ini.
+- **Redact PDF, Compare PDF, Crop PDF, Edit PDF (teks/gambar bebas)** — bisa dibangun client-side juga, belum masuk batch ini.
 
 Semuanya konsisten dengan roadmap Fase 2/3 di PRD dan bisa ditambah berikutnya tanpa mengubah arsitektur (tool baru = 1 halaman baru + fungsi baru di `lib/pdf/`).

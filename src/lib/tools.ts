@@ -4,7 +4,8 @@ export type ToolCategory =
   | "convert-to"
   | "convert-from"
   | "edit"
-  | "security";
+  | "security"
+  | "language";
 
 export interface ToolMeta {
   slug: string;
@@ -22,6 +23,7 @@ export const categoryLabels: Record<ToolCategory, string> = {
   "convert-from": "Convert from PDF",
   edit: "Edit PDF",
   security: "Security",
+  language: "Bahasa",
 };
 
 export const tools: ToolMeta[] = [
@@ -130,6 +132,14 @@ export const tools: ToolMeta[] = [
     available: true,
   },
   {
+    slug: "sign-pdf",
+    name: "Sign PDF",
+    shortDesc: "Tempel tanda tangan (gambar) ke posisi yang Anda atur",
+    category: "security",
+    icon: "Signature",
+    available: true,
+  },
+  {
     slug: "protect-pdf",
     name: "Protect PDF",
     shortDesc: "Kunci PDF dengan password",
@@ -143,6 +153,14 @@ export const tools: ToolMeta[] = [
     shortDesc: "Hapus password dari PDF (jika diketahui)",
     category: "security",
     icon: "Unlock",
+    available: true,
+  },
+  {
+    slug: "dictionary-id-en",
+    name: "Dictionary ID-EN",
+    shortDesc: "Cetak miring otomatis kata bahasa Inggris dalam teks Indonesia",
+    category: "language",
+    icon: "Languages",
     available: true,
   },
 ];

@@ -9,6 +9,7 @@ const categoryOrder: ToolCategory[] = [
   "convert-from",
   "edit",
   "security",
+  "language",
 ];
 
 export default function HomePage() {

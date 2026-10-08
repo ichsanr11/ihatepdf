@@ -7,6 +7,7 @@ const navGroups = [
   { label: "Convert", href: "/#convert-to" },
   { label: "Edit", href: "/#edit" },
   { label: "Security", href: "/#security" },
+  { label: "Bahasa", href: "/#language" },
 ];
 
 export function SiteHeader() {

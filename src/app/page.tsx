@@ -18,7 +18,7 @@ export default function HomePage() {
       <section className="border-b border-border bg-gradient-to-b from-primary/5 to-background">
         <div className="container flex flex-col items-center gap-6 py-20 text-center">
           <span className="rounded-full border border-primary/30 bg-primary/10 px-4 py-1 text-xs font-medium text-primary">
-            12 tool PDF · gratis · tanpa akun
+            Tool PDF · gratis · tanpa akun
           </span>
           <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl">
             Setiap tool PDF yang Anda butuhkan,{" "}

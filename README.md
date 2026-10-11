@@ -13,7 +13,7 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 - @dnd-kit — drag & drop reorder file/halaman
 - Daftar kata Indonesia & Inggris (top 10k tersering, dari [`most-common-words-by-language`](https://www.npmjs.com/package/most-common-words-by-language) / [FrequencyWords](https://github.com/hermitdave/FrequencyWords), MIT) — klasifikasi kata untuk Dictionary ID-EN
 
-## Tool yang tersedia (17)
+## Tool yang tersedia (18)
 
 | Kategori | Tool | Rute |
 |---|---|---|
@@ -31,6 +31,7 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 | Edit | Add Watermark | `/tools/watermark-pdf` |
 | Edit | Add Page Numbers | `/tools/page-numbers` |
 | Security | Sign PDF | `/tools/sign-pdf` |
+| Security | Remove Signature/Stamp | `/tools/remove-signature` |
 | Security | Protect PDF | `/tools/protect-pdf` |
 | Security | Unlock PDF | `/tools/unlock-pdf` |
 | Bahasa | Dictionary ID-EN | `/tools/dictionary-id-en` |
@@ -48,6 +49,15 @@ PRD aslinya menandai Compress/Repair/OCR sebagai proses server (Ghostscript, Tes
 ### Sign PDF
 
 Upload PDF, lalu **tambahkan satu atau beberapa tanda tangan** ("+ Tambah Tanda Tangan") — misalnya tanda tangan dua pihak berbeda di halaman yang sama, atau paraf di tiap halaman plus tanda tangan penuh di halaman terakhir. Tiap tanda tangan independen: gambar sendiri, diseret & diubah ukuran sendiri (posisi/ukuran disimpan sebagai persentase terhadap halaman, bukan pixel, supaya tetap presisi walau halaman ukurannya beda-beda), dan halaman target sendiri (satu halaman tertentu atau "semua halaman") lewat dropdown di kartu daftar tanda tangan. Tombol Terapkan menempelkan semuanya sekaligus via `page.drawImage()` dari pdf-lib dalam satu dokumen hasil. Ada juga opsi **"Hapus latar belakang"** per tanda tangan untuk foto/gambar yang masih punya latar — warna latar dideteksi otomatis dari sampel pojok gambar (bukan diasumsikan putih), lalu piksel yang mirip warna itu dibuat transparan lewat `<canvas>` berdasarkan jarak warna (dengan falloff halus di tepi), jadi berfungsi untuk latar putih, off-white, abu-abu muda, atau tint warna lain sekalipun. Ini visual signature saja (sesuai PRD §3.6), bukan tanda tangan digital bersertifikat yang punya kekuatan hukum.
+
+### Remove Signature/Stamp
+
+Kebalikan dari Sign PDF, dan jujur soal batasan client-side: ada dua jenis tanda tangan/cap di PDF yang perlu ditangani beda.
+
+- **Gambar tertanam (Image XObject)** — cap/stempel hasil scan, atau tanda tangan yang ditempel sebagai gambar (termasuk hasil dari Sign PDF ini sendiri) — tool ini mendeteksi semua gambar di tiap halaman (dengan thumbnail preview untuk JPEG & raw bitmap RGB/Gray, placeholder ikon untuk encoding lain yang tetap bisa dipilih meski tidak ada preview), lalu **beneran menghapusnya**: entry XObject dihapus dari resource dictionary halaman, bukan cuma ditutup. Sudah diverifikasi langsung: pdf.js (dan secara praktik semua viewer PDF serius) melewati referensi gambar yang sudah tidak ada alih-alih error — jadi cara ini aman tanpa perlu membongkar/menulis ulang content stream halaman.
+- **Coretan langsung (vector ink atau teks, bukan gambar)** — tanda tangan yang digambar sebagai path/garis langsung ke halaman tidak mungkin "dihapus" tanpa mem-parsing & mengedit content stream PDF secara utuh (di luar scope realistis untuk tool client-side ini). Untuk kasus ini disediakan mode **"Tutup dengan Kotak"**: kotak warna solid (bisa diseret/diubah ukuran/diubah warna) yang digambar via `page.drawRectangle()` menimpa area tersebut. ⚠️ Ini **menutup secara visual, bukan menghapus** — data di baliknya masih ada di dalam file PDF. Kalau alasannya privasi/kerahasiaan (bukan cuma kerapian visual), ini belum cukup sebagai jaminan forensik.
+
+Kedua mode bisa dipakai di satu atau banyak halaman sekaligus — tiap item (gambar yang dipilih atau kotak yang ditambahkan) independen per halaman.
 
 ### Dictionary ID-EN — bukan tool PDF, tapi tool teks
 
@@ -81,7 +91,9 @@ src/
   app/tools/<slug>/page.tsx        # satu halaman per tool
   components/                       # UI + komponen bersama (dropzone, grid thumbnail, dll)
   hooks/use-pdf-thumbnails.ts       # render halaman PDF jadi thumbnail untuk grid pemilih
-  hooks/use-pdf-pages.ts            # render thumbnail + render resolusi tinggi on-demand (dipakai Sign PDF)
+  hooks/use-pdf-pages.ts            # render thumbnail + render resolusi tinggi on-demand (dipakai Sign PDF & Remove Signature)
+  hooks/use-drag-resize-box.ts      # logic drag/resize pointer bersama (overlay tanda tangan & kotak redaksi)
+  lib/pdf/removeMarks.ts            # deteksi/hapus Image XObject + terapkan kotak penutup (Remove Signature/Stamp)
   lib/pdf/*.ts                      # semua logic pdf-lib/pdfjs/qpdf/tesseract, terpisah dari UI
   lib/dictionary/*.ts               # tokenizer + classifier + export untuk Dictionary ID-EN
   lib/tools.ts                      # katalog tool (dipakai landing page & header halaman tool)

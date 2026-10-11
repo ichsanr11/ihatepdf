@@ -1,27 +1,17 @@
 "use client";
 
-import { useRef, useState, type RefObject } from "react";
+import type { RefObject } from "react";
 import { Move, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDragResizeBox, type Placement } from "@/hooks/use-drag-resize-box";
 
-export interface Placement {
-  xPct: number;
-  yPct: number;
-  widthPct: number;
-  heightPct: number;
-}
-
-const MIN_SIZE_PCT = 0.04;
-
-function clamp(v: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, v));
-}
+export type { Placement };
 
 /**
- * The page preview surface every signature overlay is positioned inside —
- * just the rendered page image plus a ref for the overlays to measure
- * themselves against. Pulled apart from the overlay itself so several
- * `SignatureOverlayBox`es can share one page and one coordinate space.
+ * The page preview surface every overlay (signature or redaction box) is
+ * positioned inside — just the rendered page image plus a ref for the
+ * overlays to measure themselves against. Pulled apart from the overlay
+ * itself so several boxes can share one page and one coordinate space.
  */
 export function PdfPagePreview({
   backgroundSrc,
@@ -73,72 +63,12 @@ export function SignatureOverlayBox({
   label?: string;
   highlighted?: boolean;
 }) {
-  const [mode, setMode] = useState<"idle" | "drag" | "resize">("idle");
-  const dragState = useRef({ startX: 0, startY: 0, origX: 0, origY: 0, origW: 0, origH: 0 });
-
-  function startDrag(e: React.PointerEvent) {
-    e.preventDefault();
-    (e.target as Element).setPointerCapture(e.pointerId);
-    dragState.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: placement.xPct,
-      origY: placement.yPct,
-      origW: placement.widthPct,
-      origH: placement.heightPct,
-    };
-    setMode("drag");
-  }
-
-  function startResize(e: React.PointerEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as Element).setPointerCapture(e.pointerId);
-    dragState.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: placement.xPct,
-      origY: placement.yPct,
-      origW: placement.widthPct,
-      origH: placement.heightPct,
-    };
-    setMode("resize");
-  }
-
-  function handleMove(e: React.PointerEvent) {
-    if (mode === "idle") return;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const dxPct = (e.clientX - dragState.current.startX) / rect.width;
-    const dyPct = (e.clientY - dragState.current.startY) / rect.height;
-
-    if (mode === "drag") {
-      const { origX, origY, origW, origH } = dragState.current;
-      onChange({
-        ...placement,
-        xPct: clamp(origX + dxPct, 0, 1 - origW),
-        yPct: clamp(origY + dyPct, 0, 1 - origH),
-      });
-    } else {
-      const { origX, origY, origW } = dragState.current;
-      const maxWidthPct = 1 - origX;
-      const newWidthPct = clamp(origW + dxPct, MIN_SIZE_PCT, maxWidthPct);
-      // Maintain the signature's own aspect ratio in real pixel space
-      // (container width/height aren't equal, so this isn't just 1:1).
-      const newWidthPx = newWidthPct * rect.width;
-      const newHeightPx = newWidthPx / signatureAspect;
-      let newHeightPct = newHeightPx / rect.height;
-      const maxHeightPct = 1 - origY;
-      if (newHeightPct > maxHeightPct) {
-        newHeightPct = maxHeightPct;
-      }
-      onChange({ ...placement, widthPct: newWidthPct, heightPct: newHeightPct });
-    }
-  }
-
-  function endInteraction() {
-    setMode("idle");
-  }
+  const { startDrag, startResize, handleMove, endInteraction } = useDragResizeBox(
+    containerRef,
+    placement,
+    onChange,
+    signatureAspect
+  );
 
   return (
     <div

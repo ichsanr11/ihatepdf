@@ -140,6 +140,14 @@ export const tools: ToolMeta[] = [
     available: true,
   },
   {
+    slug: "remove-signature",
+    name: "Remove Signature/Stamp",
+    shortDesc: "Hapus atau tutup tanda tangan & cap di satu/beberapa halaman",
+    category: "security",
+    icon: "Eraser",
+    available: true,
+  },
+  {
     slug: "protect-pdf",
     name: "Protect PDF",
     shortDesc: "Kunci PDF dengan password",

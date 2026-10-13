@@ -1,4 +1,5 @@
 export type ToolCategory =
+  | "workflow"
   | "organize"
   | "optimize"
   | "convert-to"
@@ -17,6 +18,7 @@ export interface ToolMeta {
 }
 
 export const categoryLabels: Record<ToolCategory, string> = {
+  workflow: "Workflow",
   organize: "Organize PDF",
   optimize: "Optimize",
   "convert-to": "Convert to PDF",
@@ -27,6 +29,14 @@ export const categoryLabels: Record<ToolCategory, string> = {
 };
 
 export const tools: ToolMeta[] = [
+  {
+    slug: "workflow",
+    name: "Workflow (Gabungan Tool)",
+    shortDesc: "Rantai beberapa tool sekaligus — merge, urutkan, tanda tangan, dll — tanpa download di tengah jalan",
+    category: "workflow",
+    icon: "Workflow",
+    available: true,
+  },
   {
     slug: "merge-pdf",
     name: "Merge PDF",
@@ -73,6 +83,14 @@ export const tools: ToolMeta[] = [
     shortDesc: "Putar orientasi halaman PDF",
     category: "organize",
     icon: "RotateCw",
+    available: true,
+  },
+  {
+    slug: "deskew-pdf",
+    name: "Luruskan Scan (Deskew)",
+    shortDesc: "Luruskan halaman hasil scan yang miring, per halaman",
+    category: "organize",
+    icon: "ScanLine",
     available: true,
   },
   {

@@ -3,6 +3,7 @@ import { ToolCard } from "@/components/tool-card";
 import { tools, categoryLabels, type ToolCategory } from "@/lib/tools";
 
 const categoryOrder: ToolCategory[] = [
+  "workflow",
   "organize",
   "optimize",
   "convert-to",

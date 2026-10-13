@@ -13,16 +13,18 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 - @dnd-kit — drag & drop reorder file/halaman
 - Daftar kata Indonesia & Inggris (top 10k tersering, dari [`most-common-words-by-language`](https://www.npmjs.com/package/most-common-words-by-language) / [FrequencyWords](https://github.com/hermitdave/FrequencyWords), MIT) — klasifikasi kata untuk Dictionary ID-EN
 
-## Tool yang tersedia (18)
+## Tool yang tersedia (20)
 
 | Kategori | Tool | Rute |
 |---|---|---|
+| **Workflow** | **Workflow (Gabungan Tool)** | `/tools/workflow` |
 | Organize | Merge PDF | `/tools/merge-pdf` |
 | Organize | Split PDF | `/tools/split-pdf` |
 | Organize | Remove Pages | `/tools/remove-pages` |
 | Organize | Extract Pages | `/tools/extract-pages` |
 | Organize | Reorder Pages | `/tools/reorder-pages` |
 | Organize | Rotate PDF | `/tools/rotate-pdf` |
+| Organize | Luruskan Scan (Deskew) | `/tools/deskew-pdf` |
 | Optimize | Compress PDF | `/tools/compress-pdf` |
 | Optimize | Repair PDF | `/tools/repair-pdf` |
 | Optimize | OCR PDF | `/tools/ocr-pdf` |
@@ -45,6 +47,20 @@ PRD aslinya menandai Compress/Repair/OCR sebagai proses server (Ghostscript, Tes
 - **Compress PDF** — bukan re-render seluruh halaman jadi gambar (itu akan merusak teks vector). Tool ini mencari setiap gambar yang di-embed di dalam PDF — baik JPEG (`DCTDecode`) maupun raw bitmap `FlateDecode` (DeviceGray/DeviceRGB 8bpc, umum untuk screenshot/"print to PDF"/gambar asal PNG) — meng-kompres ulang lewat `<canvas>` di level kualitas/resolusi pilihan, lalu menaruh kembali bytes yang lebih kecil ke object PDF yang sama. Gambar dengan soft mask (transparansi) tetap ikut dikompres (viewer me-resample mask-nya independen, sesuai ISO 32000-2 §8.9.6); yang dilewati hanya gambar dengan stencil/color-key `Mask`, Indexed/CMYK/ICC color space, atau filter berantai, karena berisiko rusak kalau ikut diproses. Teks & vector tidak disentuh sama sekali. Ada juga mode "Target ukuran maksimum" (mis. ≤10MB) yang mencoba beberapa tingkat kompresi berurutan sampai tercapai. PDF yang isinya teks murni (tanpa gambar) wajar tidak banyak mengecil — itu bukan bug, tapi cara kerja tool ini didokumentasikan di UI-nya sendiri.
 - **Repair PDF** — parse file selenggang mungkin (skip object yang rusak alih-alih berhenti), lalu tulis ulang strukturnya dari nol. Efektif untuk xref table/struktur yang korup; tidak bisa merekonstruksi data yang memang hilang/terpotong.
 - **OCR PDF** — setiap halaman di-render jadi gambar, dibaca lewat Tesseract (WASM, jalan di Web Worker), lalu digabung jadi satu PDF baru berisi gambar halaman + lapisan teks tak terlihat yang posisinya presisi (fitur PDF-output bawaan Tesseract sendiri, bukan hasil hitung manual). Hasilnya: PDF yang teksnya bisa di-select & dicari.
+
+### Luruskan Scan (Deskew)
+
+Beda dengan Rotate PDF (cuma putar 90°/180°/270°, untuk orientasi) — ini untuk hasil **scan yang miring beberapa derajat** (umum terjadi kalau kertas tidak pas lurus di scanner). Per halaman: atur sudut lewat slider/input angka (langkah 0.1°, -45° sampai 45°), dengan **pratinjau langsung** (gambar halaman diputar via CSS, dengan garis bantu putus-putus sebagai referensi lurus) sebelum diterapkan beneran.
+
+Karena atribut `/Rotate` bawaan PDF cuma mendukung kelipatan 90°, meluruskan sudut sekecil apa pun otomatis berarti halamannya di-render ulang jadi gambar beresolusi tinggi, diputar via `<canvas>`, dengan margin putih tipis supaya konten tidak terpotong di pojok — baru ditanam kembali sebagai halaman baru berukuran sama. **Hanya halaman yang sudutnya benar-benar diubah (tidak 0°) yang diproses begini** — halaman lain disalin apa adanya, tetap vector/teks asli, tidak ikut terdegradasi. Diverifikasi dengan fixture bergaris + penanda arah: arah rotasi di hasil akhir cocok 1:1 dengan arah di pratinjau (searah jarum jam untuk sudut positif), dan halaman yang tidak disentuh tetap tajam seperti aslinya.
+
+### Workflow (Gabungan Tool)
+
+Merantai beberapa tool sekaligus dalam satu sesi — **tanpa perlu download di antara langkah**. Upload satu PDF (atau beberapa sekaligus untuk otomatis digabung sebagai titik awal), lalu tambahkan langkah satu per satu dari 10 tool yang tersedia: Gabung PDF Lain, Urutkan Ulang Halaman, Hapus Halaman, Ambil Halaman Tertentu, Putar Halaman, Luruskan Scan, Tambah Watermark, Tambah Nomor Halaman, Tanda Tangani, Hapus Tanda Tangan/Cap. Tiap langkah beroperasi langsung di atas hasil langkah sebelumnya (`Uint8Array` di memori), ada riwayat langkah yang sudah diterapkan, tombol **Urungkan** (undo satu langkah terakhir), dan tombol **Download** yang bisa diklik kapan saja — baik di tengah proses maupun di akhir.
+
+Secara teknis ini bukan hasil refactor tool-tool yang sudah ada (biar tidak berisiko merusak yang sudah teruji) — tiap langkah adalah komponen baru di `src/components/workflow/` yang memanggil fungsi `lib/pdf/*.ts` yang sama persis, memakai ulang hook & komponen interaktif yang sama (`usePdfPages`, `PageThumbnailGrid`, `PdfPagePreview`, `SignatureOverlayBox`, dll). Sign PDF di dalam workflow sengaja dibatasi satu tanda tangan per langkah (bukan multi-tanda tangan seperti versi standalone) — untuk tanda tangan kedua tinggal tambahkan langkah "Tanda Tangani" lagi.
+
+Fitur yang butuh server atau yang mengubah byte PDF jadi tidak bisa diedit lagi oleh pdf-lib (Protect PDF/enkripsi, Compress, OCR, Repair) sengaja tidak dimasukkan ke rantai workflow — tool-tool itu lebih cocok jadi langkah terakhir yang berdiri sendiri setelah file di-download.
 
 ### Sign PDF
 
@@ -90,6 +106,7 @@ npm run lint
 src/
   app/tools/<slug>/page.tsx        # satu halaman per tool
   components/                       # UI + komponen bersama (dropzone, grid thumbnail, dll)
+  components/workflow/              # satu komponen "step" per tool, dipakai oleh /tools/workflow
   hooks/use-pdf-thumbnails.ts       # render halaman PDF jadi thumbnail untuk grid pemilih
   hooks/use-pdf-pages.ts            # render thumbnail + render resolusi tinggi on-demand (dipakai Sign PDF & Remove Signature)
   hooks/use-drag-resize-box.ts      # logic drag/resize pointer bersama (overlay tanda tangan & kotak redaksi)

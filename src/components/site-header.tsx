@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileStack } from "lucide-react";
 
 const navGroups = [
+  { label: "Workflow", href: "/#workflow" },
   { label: "Organize", href: "/#organize" },
   { label: "Optimize", href: "/#optimize" },
   { label: "Convert", href: "/#convert-to" },

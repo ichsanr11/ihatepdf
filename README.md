@@ -10,10 +10,11 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 - [pdfjs-dist](https://github.com/mozilla/pdf.js) — render thumbnail halaman & ekspor PDF→gambar
 - [qpdf.js](https://github.com/j3k0/qpdf.js) (QPDF di-compile ke WebAssembly, jalan di Web Worker) — enkripsi/dekripsi PDF asli (Protect/Unlock), satu-satunya hal yang tidak bisa dilakukan pdf-lib
 - [tesseract.js](https://github.com/naptha/tesseract.js) (Tesseract OCR di-compile ke WebAssembly, jalan di Web Worker) — OCR PDF hasil scan jadi bisa dicari/disalin teksnya
+- [docx](https://github.com/dolanmiu/docx) — generate file `.docx` asli di browser untuk PDF to Word
 - @dnd-kit — drag & drop reorder file/halaman
 - Daftar kata Indonesia & Inggris (top 10k tersering, dari [`most-common-words-by-language`](https://www.npmjs.com/package/most-common-words-by-language) / [FrequencyWords](https://github.com/hermitdave/FrequencyWords), MIT) — klasifikasi kata untuk Dictionary ID-EN
 
-## Tool yang tersedia (20)
+## Tool yang tersedia (21)
 
 | Kategori | Tool | Rute |
 |---|---|---|
@@ -30,6 +31,7 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 | Optimize | OCR PDF | `/tools/ocr-pdf` |
 | Convert to PDF | JPG/PNG to PDF | `/tools/jpg-to-pdf` |
 | Convert from PDF | PDF to JPG | `/tools/pdf-to-jpg` |
+| Convert from PDF | PDF to Word | `/tools/pdf-to-word` |
 | Edit | Add Watermark | `/tools/watermark-pdf` |
 | Edit | Add Page Numbers | `/tools/page-numbers` |
 | Security | Sign PDF | `/tools/sign-pdf` |
@@ -75,6 +77,14 @@ Kebalikan dari Sign PDF, dan jujur soal batasan client-side: ada dua jenis tanda
 
 Kedua mode bisa dipakai di satu atau banyak halaman sekaligus — tiap item (gambar yang dipilih atau kotak yang ditambahkan) independen per halaman.
 
+### PDF to Word
+
+Ubah PDF jadi `.docx` yang bisa diedit di Word/Google Docs, dengan **posisi, ukuran font, dan gaya (bold/italic) tiap baris teks dipertahankan** — bukan cuma dump teks mentah berurutan. Tiap halaman PDF di-scan lewat pdf.js (`getTextContent()` + `page.commonObjs` untuk metadata font asli — nama font, bold/italic, ascent — yang tidak tersedia lewat API publik `styles`), lalu tiap potongan teks ditulis sebagai paragraph dengan `frame` posisi absolut (`docx`, satuan twip = 1/20 point) persis di koordinat X/Y yang sama seperti di PDF aslinya, dengan ukuran font dikonversi ke half-point (satuan run size OOXML). Nama font PDF (termasuk font ter-embed dengan prefix subset acak seperti `ABCDEF+Helvetica`) dipetakan ke font standar Word terdekat (Arial, Times New Roman, Courier New, dst).
+
+Diverifikasi dua lapis: isi `word/document.xml` mentah dicek byte-per-byte cocok dengan posisi/ukuran/bold/italic yang diharapkan dari fixture PDF kontrol, lalu hasilnya juga dikonversi lewat pembaca OOXML independen (bukan pdf.js atau kode sendiri) untuk sanity-check. Satu catatan teknis: run yang tidak bold/italic ditulis **tanpa** tag `<w:b>`/`<w:i>` sama sekali (bukan `<w:val="false">`) — sejumlah pembaca DOCX yang kurang strict ternyata salah mengartikan toggle eksplisit `false` sebagai `true`, jadi menghilangkan tag adalah bentuk yang paling kompatibel.
+
+Batasan yang jujur ditampilkan di UI sebelum konversi: ini kecocokan visual yang dekat, bukan pixel-perfect. Warna teks selalu dianggap hitam (warna asli tidak dibaca), teks yang diputar/miring di PDF akan tampil lurus di hasil Word, dan **gambar di dalam PDF belum ikut disalin** — hanya teks. Halaman hasil scan tanpa teks (gambar murni, belum di-OCR) akan menghasilkan halaman kosong di Word — tool ini mendeteksi dan memperingatkan kasus ini, dengan saran menjalankan OCR PDF dulu.
+
 ### Dictionary ID-EN — bukan tool PDF, tapi tool teks
 
 Satu-satunya tool di luar kategori PDF: tempel paragraf campuran Indonesia-Inggris, klik Generate, kata bahasa Inggris otomatis dicetak miring sementara kata Indonesia dibiarkan apa adanya. Cara kerjanya (`src/lib/dictionary/`):
@@ -111,19 +121,21 @@ src/
   hooks/use-pdf-pages.ts            # render thumbnail + render resolusi tinggi on-demand (dipakai Sign PDF & Remove Signature)
   hooks/use-drag-resize-box.ts      # logic drag/resize pointer bersama (overlay tanda tangan & kotak redaksi)
   lib/pdf/removeMarks.ts            # deteksi/hapus Image XObject + terapkan kotak penutup (Remove Signature/Stamp)
+  lib/pdf/pdfToWord.ts              # ekstrak teks+posisi+font via pdf.js, susun jadi .docx via docx
   lib/pdf/*.ts                      # semua logic pdf-lib/pdfjs/qpdf/tesseract, terpisah dari UI
   lib/dictionary/*.ts               # tokenizer + classifier + export untuk Dictionary ID-EN
   lib/tools.ts                      # katalog tool (dipakai landing page & header halaman tool)
   data/dict/*.json                  # daftar 10k kata ID & EN tersering, di-vendor statis (lihat SOURCE.md)
 scripts/copy-qpdf-assets.mjs        # postinstall: salin worker+wasm qpdf.js ke public/qpdf/
 scripts/copy-tesseract-assets.mjs   # postinstall: salin worker+wasm tesseract.js ke public/tesseract/
+scripts/copy-pdfjs-assets.mjs       # postinstall: salin standard_fonts pdf.js ke public/pdfjs/ (metrik font standar)
 ```
 
 ## Yang sengaja di luar scope MVP ini
 
 Sesuai keputusan scope "client-side only" di PRD §10 Fase 1, belum diimplementasikan:
 
-- **Convert Office (Word/Excel/PPT) ↔ PDF, HTML to PDF** — butuh LibreOffice headless di server, tidak ada padanan client-side yang genuine.
+- **Convert Office (Word/Excel/PPT) → PDF, HTML to PDF** — butuh LibreOffice headless di server, tidak ada padanan client-side yang genuine. (Arah sebaliknya, PDF → Word, sudah ada — lihat [PDF to Word](#pdf-to-word) di atas.)
 - **Auth, dashboard riwayat file, subscription/payment, multi-bahasa** — bagian platform non-tool di PRD §3.7 & §8, butuh Supabase + backend.
 - **Redact PDF, Compare PDF, Crop PDF, Edit PDF (teks/gambar bebas)** — bisa dibangun client-side juga, belum masuk batch ini.
 

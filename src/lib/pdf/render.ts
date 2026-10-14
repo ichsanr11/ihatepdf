@@ -19,6 +19,11 @@ export async function loadPdfDocument(bytes: ArrayBuffer, password?: string) {
   const loadingTask = pdfjsLib.getDocument({
     data: bytes,
     password,
+    // Self-hosted character-width metrics for the 14 standard PDF fonts
+    // (Helvetica, Times, Courier, ...) — used whenever a PDF references one
+    // by name without embedding it, which is extremely common. Without
+    // this, pdf.js falls back to rough guessed widths.
+    standardFontDataUrl: "/pdfjs/standard_fonts/",
   });
   return loadingTask.promise;
 }

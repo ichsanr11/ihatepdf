@@ -134,6 +134,14 @@ export const tools: ToolMeta[] = [
     available: true,
   },
   {
+    slug: "pdf-to-word",
+    name: "PDF to Word",
+    shortDesc: "Ubah PDF jadi .docx, posisi & font teks dipertahankan",
+    category: "convert-from",
+    icon: "FileType2",
+    available: true,
+  },
+  {
     slug: "watermark-pdf",
     name: "Add Watermark",
     shortDesc: "Tambahkan watermark teks ke semua halaman",

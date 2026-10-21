@@ -11,10 +11,11 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 - [qpdf.js](https://github.com/j3k0/qpdf.js) (QPDF di-compile ke WebAssembly, jalan di Web Worker) — enkripsi/dekripsi PDF asli (Protect/Unlock), satu-satunya hal yang tidak bisa dilakukan pdf-lib
 - [tesseract.js](https://github.com/naptha/tesseract.js) (Tesseract OCR di-compile ke WebAssembly, jalan di Web Worker) — OCR PDF hasil scan jadi bisa dicari/disalin teksnya
 - [docx](https://github.com/dolanmiu/docx) — generate file `.docx` asli di browser untuk PDF to Word
+- [@breezystack/lamejs](https://github.com/shijinyu/lamejs) (LAME MP3 encoder murni JavaScript, tanpa WASM) — encode ulang potongan audio jadi `.mp3` untuk Split Audio
 - @dnd-kit — drag & drop reorder file/halaman
 - Daftar kata Indonesia & Inggris (top 10k tersering, dari [`most-common-words-by-language`](https://www.npmjs.com/package/most-common-words-by-language) / [FrequencyWords](https://github.com/hermitdave/FrequencyWords), MIT) — klasifikasi kata untuk Dictionary ID-EN
 
-## Tool yang tersedia (21)
+## Tool yang tersedia (22)
 
 | Kategori | Tool | Rute |
 |---|---|---|
@@ -39,6 +40,7 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 | Security | Protect PDF | `/tools/protect-pdf` |
 | Security | Unlock PDF | `/tools/unlock-pdf` |
 | Bahasa | Dictionary ID-EN | `/tools/dictionary-id-en` |
+| Audio | Split Audio | `/tools/split-audio` |
 
 Semua rute di atas sudah diuji end-to-end (upload → proses → download, cek console error) dengan Playwright terhadap dev server sungguhan — bukan cuma lolos build.
 
@@ -94,6 +96,16 @@ Satu-satunya tool di luar kategori PDF: tempel paragraf campuran Indonesia-Inggr
 3. Tiap kata di hasil bisa **diklik untuk toggle** miring/tidak secara manual, termasuk yang "belum dikenali".
 4. **Salin hasil** dalam 2 format: HTML asli (`<i>`) via Clipboard API supaya kalau di-paste ke Word/Google Docs beneran jadi italic, atau markdown (`*kata*`) untuk tempat yang tidak menerima rich paste (Slack, Notion, dll).
 
+### Split Audio — bukan tool PDF juga
+
+Di luar scope PRD (yang murni seputar PDF), tapi fitur yang sama relevan: pecah satu file audio jadi beberapa bagian berdasarkan durasi menit yang Anda tentukan. Misal audio 1 jam di-split per 20 menit → 3 file (20, 20, 20 menit); audio 2 jam di-split per 45 menit → 3 file (45, 45, 30 menit) — bagian terakhir otomatis jadi sisa durasinya, tidak dipaksakan sama panjang.
+
+Cara kerjanya: file audio didekode penuh di memori lewat Web Audio API (`AudioContext.decodeAudioData`) begitu dipilih (durasi totalnya langsung tampil), lalu tiap bagian dipotong dari data PCM mentah sesuai rentang waktu yang dihitung, dan di-encode ulang jadi `.mp3` (128kbps) lewat [@breezystack/lamejs](https://github.com/shijinyu/lamejs) — encoder MP3 murni JavaScript (bukan WASM), jadi tidak perlu asset tambahan yang di-self-host. Kalau hasilnya cuma 1 bagian (split length ≥ durasi total), langsung didownload sebagai satu `.mp3`; kalau lebih dari 1, otomatis dibundel jadi satu `.zip`.
+
+Diverifikasi dengan fixture WAV 150 detik (2:30): preview pembagian di UI (1:00, 1:00, 0:30) dicek cocok sebelum diproses, lalu hasil akhirnya diverifikasi dengan `ffprobe` (bukan kode sendiri) — durasi tiap file MP3 keluar persis sesuai target (ditambah ~24ms delay encoder LAME yang memang standar/tidak terhindarkan di format MP3), dan `ffmpeg astats` mengonfirmasi kontennya benar-benar berisi audio (bukan senyap/korup).
+
+Batasan yang jujur: setiap bagian di-render ulang sebagai MP3, jadi kalau file aslinya format lain (wav/ogg/m4a/flac), hasilnya selalu berubah ke `.mp3` dan kualitasnya mengikuti bitrate 128kbps tadi — bukan proses "potong tanpa re-encode" yang lossless. Karena seluruh audio didekode penuh ke PCM mentah di memori sebelum dipotong, file yang sangat panjang (berjam-jam, terutama stereo/sample rate tinggi) bisa memakai memori browser cukup besar — ini didisclose di UI sebelum diproses.
+
 ## Privasi
 
 Semua proses berjalan lokal — **kecuali OCR**, yang mengunduh model bahasa (data publik ±5–15MB/bahasa, bukan data Anda) dari CDN sekali saat pertama dipakai, lalu di-cache browser. Mesin OCR & worker-nya sendiri sudah di-hosting sendiri (self-hosted), bukan CDN. Detail lengkap ada di halaman [/privacy](./src/app/privacy/page.tsx).
@@ -124,6 +136,7 @@ src/
   lib/pdf/pdfToWord.ts              # ekstrak teks+posisi+font via pdf.js, susun jadi .docx via docx
   lib/pdf/*.ts                      # semua logic pdf-lib/pdfjs/qpdf/tesseract, terpisah dari UI
   lib/dictionary/*.ts               # tokenizer + classifier + export untuk Dictionary ID-EN
+  lib/audio/splitAudio.ts           # decode (Web Audio API) + potong PCM + encode ulang mp3 (lamejs) untuk Split Audio
   lib/tools.ts                      # katalog tool (dipakai landing page & header halaman tool)
   data/dict/*.json                  # daftar 10k kata ID & EN tersering, di-vendor statis (lihat SOURCE.md)
 scripts/copy-qpdf-assets.mjs        # postinstall: salin worker+wasm qpdf.js ke public/qpdf/

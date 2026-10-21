@@ -9,6 +9,7 @@ const navGroups = [
   { label: "Edit", href: "/#edit" },
   { label: "Security", href: "/#security" },
   { label: "Bahasa", href: "/#language" },
+  { label: "Audio", href: "/#audio" },
 ];
 
 export function SiteHeader() {

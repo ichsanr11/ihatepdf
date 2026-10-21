@@ -6,7 +6,8 @@ export type ToolCategory =
   | "convert-from"
   | "edit"
   | "security"
-  | "language";
+  | "language"
+  | "audio";
 
 export interface ToolMeta {
   slug: string;
@@ -26,6 +27,7 @@ export const categoryLabels: Record<ToolCategory, string> = {
   edit: "Edit PDF",
   security: "Security",
   language: "Bahasa",
+  audio: "Audio",
 };
 
 export const tools: ToolMeta[] = [
@@ -195,6 +197,14 @@ export const tools: ToolMeta[] = [
     shortDesc: "Cetak miring otomatis kata bahasa Inggris dalam teks Indonesia",
     category: "language",
     icon: "Languages",
+    available: true,
+  },
+  {
+    slug: "split-audio",
+    name: "Split Audio",
+    shortDesc: "Pecah file audio jadi beberapa bagian berdasarkan durasi menit",
+    category: "audio",
+    icon: "AudioWaveform",
     available: true,
   },
 ];

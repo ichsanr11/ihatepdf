@@ -11,6 +11,7 @@ const categoryOrder: ToolCategory[] = [
   "edit",
   "security",
   "language",
+  "audio",
 ];
 
 export default function HomePage() {

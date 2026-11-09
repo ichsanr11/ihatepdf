@@ -1,14 +1,7 @@
 "use client";
 
-import { Mp3Encoder } from "@breezystack/lamejs";
+import { FFmpeg } from "@ffmpeg/ffmpeg";
 import JSZip from "jszip";
-
-// MPEG-1 Layer III requires samples to be fed in fixed-size blocks.
-const SAMPLE_BLOCK_SIZE = 1152;
-const MP3_BITRATE_KBPS = 128;
-// lamejs' Mp3Encoder only supports mono or stereo; anything beyond that
-// (rare multichannel recordings) is downmixed to the first two channels.
-const MAX_ENCODER_CHANNELS = 2;
 
 export interface SegmentPlan {
   index: number;
@@ -44,56 +37,86 @@ export function formatDuration(totalSeconds: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
-/** Decode an uploaded audio file into a raw AudioBuffer via the Web Audio API. */
-export async function decodeAudioFile(file: File): Promise<AudioBuffer> {
-  const arrayBuffer = await file.arrayBuffer();
-  const AudioContextCtor =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const audioContext = new AudioContextCtor();
+const MIME_BY_EXT: Record<string, string> = {
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  flac: "audio/flac",
+  aac: "audio/aac",
+  webm: "audio/webm",
+};
+
+export function mimeTypeForFileName(fileName: string): string {
+  const ext = fileName.slice(fileName.lastIndexOf(".") + 1).toLowerCase();
+  return MIME_BY_EXT[ext] ?? "application/octet-stream";
+}
+
+function extensionOf(fileName: string): string {
+  const i = fileName.lastIndexOf(".");
+  return i >= 0 ? fileName.slice(i) : ".mp3";
+}
+
+// Single-threaded ffmpeg.wasm core, self-hosted (see scripts/copy-ffmpeg-assets.mjs)
+// — no SharedArrayBuffer/COOP/COEP needed, unlike the multi-threaded core.
+const CORE_URL = "/ffmpeg/ffmpeg-core.js";
+const WASM_URL = "/ffmpeg/ffmpeg-core.wasm";
+
+let ffmpegSingleton: FFmpeg | null = null;
+let loadPromise: Promise<FFmpeg> | null = null;
+
+/**
+ * Lazily load (and cache) the shared ffmpeg.wasm instance. Loading fetches
+ * and instantiates a ~32MB WASM module, so it only happens once per page
+ * session regardless of how many files get split afterwards.
+ */
+async function getFFmpeg(): Promise<FFmpeg> {
+  if (ffmpegSingleton?.loaded) return ffmpegSingleton;
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      const ffmpeg = new FFmpeg();
+      await ffmpeg.load({ coreURL: CORE_URL, wasmURL: WASM_URL });
+      ffmpegSingleton = ffmpeg;
+      return ffmpeg;
+    })();
+  }
+  return loadPromise;
+}
+
+/**
+ * Read an audio file's duration via ffprobe (bundled in ffmpeg.wasm's core)
+ * without decoding any of its actual audio data — cheap and memory-light
+ * regardless of file length, unlike Web Audio's decodeAudioData.
+ */
+export async function probeDurationSec(file: File): Promise<number> {
+  const ffmpeg = await getFFmpeg();
+  const inputName = `probe_input${extensionOf(file.name)}`;
+  const outputName = "probe_output.txt";
+
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
   try {
-    return await audioContext.decodeAudioData(arrayBuffer);
-  } catch (err) {
-    const detail = err instanceof DOMException ? `${err.name}: ${err.message}` : String(err);
-    throw new Error(detail);
+    await ffmpeg.ffprobe([
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      inputName,
+      "-o",
+      outputName,
+    ]);
+    const text = await ffmpeg.readFile(outputName, "utf8");
+    const duration = parseFloat(typeof text === "string" ? text : new TextDecoder().decode(text));
+    if (!(duration > 0)) {
+      throw new Error("Durasi tidak terbaca dari file ini.");
+    }
+    return duration;
   } finally {
-    await audioContext.close();
+    await ffmpeg.deleteFile(inputName).catch(() => {});
+    await ffmpeg.deleteFile(outputName).catch(() => {});
   }
-}
-
-function floatTo16BitPCM(input: Float32Array): Int16Array {
-  const output = new Int16Array(input.length);
-  for (let i = 0; i < input.length; i++) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    output[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-  }
-  return output;
-}
-
-function encodeSegmentToMp3(channelData: Float32Array[], sampleRate: number): Uint8Array {
-  const channels = Math.min(channelData.length, MAX_ENCODER_CHANNELS);
-  const encoder = new Mp3Encoder(channels, sampleRate, MP3_BITRATE_KBPS);
-  const pcm = channelData.slice(0, channels).map(floatTo16BitPCM);
-  const chunks: Uint8Array[] = [];
-  const length = pcm[0]?.length ?? 0;
-
-  for (let i = 0; i < length; i += SAMPLE_BLOCK_SIZE) {
-    const left = pcm[0].subarray(i, i + SAMPLE_BLOCK_SIZE);
-    const right = channels > 1 ? pcm[1].subarray(i, i + SAMPLE_BLOCK_SIZE) : undefined;
-    const encoded = encoder.encodeBuffer(left, right);
-    if (encoded.length > 0) chunks.push(encoded);
-  }
-  const final = encoder.flush();
-  if (final.length > 0) chunks.push(final);
-
-  const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
 }
 
 export interface AudioSegmentFile {
@@ -102,35 +125,50 @@ export interface AudioSegmentFile {
   durationSec: number;
 }
 
-/** Slice a decoded AudioBuffer according to `plan` and re-encode each piece as a standalone MP3. */
-export async function splitAudioBuffer(
-  audioBuffer: AudioBuffer,
+/**
+ * Cut `file` into segments per `plan` by remuxing (stream copy, no decode/
+ * re-encode) — each cut only ever holds the original compressed file plus
+ * one segment's worth of output in memory, never the fully decoded audio.
+ * Keeps the original codec/container/quality intact.
+ */
+export async function splitAudioFile(
+  file: File,
   plan: SegmentPlan[],
-  baseName: string,
   onProgress?: (done: number, total: number) => void
 ): Promise<AudioSegmentFile[]> {
-  const sampleRate = audioBuffer.sampleRate;
-  const results: AudioSegmentFile[] = [];
+  const ffmpeg = await getFFmpeg();
+  const ext = extensionOf(file.name);
+  const base = file.name.replace(/\.[^/.]+$/, "");
+  const inputName = `input${ext}`;
 
-  for (const segment of plan) {
-    const startSample = Math.floor(segment.startSec * sampleRate);
-    const endSample = Math.min(Math.floor(segment.endSec * sampleRate), audioBuffer.length);
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
 
-    const channelData: Float32Array[] = [];
-    for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
-      channelData.push(audioBuffer.getChannelData(ch).slice(startSample, endSample));
+  try {
+    const results: AudioSegmentFile[] = [];
+    for (const segment of plan) {
+      const outputName = `part${segment.index}${ext}`;
+      await ffmpeg.exec([
+        "-ss",
+        segment.startSec.toFixed(3),
+        "-t",
+        segment.durationSec.toFixed(3),
+        "-i",
+        inputName,
+        "-c",
+        "copy",
+        outputName,
+      ]);
+      const bytes = (await ffmpeg.readFile(outputName)) as Uint8Array;
+      await ffmpeg.deleteFile(outputName).catch(() => {});
+
+      const partLabel = String(segment.index).padStart(2, "0");
+      results.push({ fileName: `${base}_part${partLabel}${ext}`, bytes, durationSec: segment.durationSec });
+      onProgress?.(segment.index, plan.length);
     }
-
-    const bytes = encodeSegmentToMp3(channelData, sampleRate);
-    const partLabel = String(segment.index).padStart(2, "0");
-    results.push({ fileName: `${baseName}_part${partLabel}.mp3`, bytes, durationSec: segment.durationSec });
-
-    onProgress?.(segment.index, plan.length);
-    // Yield to the event loop between segments so the progress bar can repaint.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    return results;
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {});
   }
-
-  return results;
 }
 
 /** Bundle multiple split segments into a single downloadable .zip. */

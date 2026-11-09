@@ -11,11 +11,12 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 - [qpdf.js](https://github.com/j3k0/qpdf.js) (QPDF di-compile ke WebAssembly, jalan di Web Worker) — enkripsi/dekripsi PDF asli (Protect/Unlock), satu-satunya hal yang tidak bisa dilakukan pdf-lib
 - [tesseract.js](https://github.com/naptha/tesseract.js) (Tesseract OCR di-compile ke WebAssembly, jalan di Web Worker) — OCR PDF hasil scan jadi bisa dicari/disalin teksnya
 - [docx](https://github.com/dolanmiu/docx) — generate file `.docx` asli di browser untuk PDF to Word
-- [@breezystack/lamejs](https://github.com/shijinyu/lamejs) (LAME MP3 encoder murni JavaScript, tanpa WASM) — encode ulang potongan audio jadi `.mp3` untuk Split Audio
+- [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) (`@ffmpeg/ffmpeg` + `@ffmpeg/core`, single-thread, self-hosted — tanpa perlu header COOP/COEP) — potong file audio untuk Split Audio lewat stream copy (tanpa decode/re-encode)
+- [@pdf-lib/fontkit](https://github.com/Hopding/fontkit) + 12 paket [@fontsource](https://fontsource.org/) (Google Fonts, OFL, self-hosted) — embed font tambahan untuk Add Text di luar 14 font standar PDF
 - @dnd-kit — drag & drop reorder file/halaman
 - Daftar kata Indonesia & Inggris (top 10k tersering, dari [`most-common-words-by-language`](https://www.npmjs.com/package/most-common-words-by-language) / [FrequencyWords](https://github.com/hermitdave/FrequencyWords), MIT) — klasifikasi kata untuk Dictionary ID-EN
 
-## Tool yang tersedia (22)
+## Tool yang tersedia (23)
 
 | Kategori | Tool | Rute |
 |---|---|---|
@@ -33,6 +34,7 @@ Semua tool di bawah ini berjalan **sepenuhnya di browser**: file Anda tidak pern
 | Convert to PDF | JPG/PNG to PDF | `/tools/jpg-to-pdf` |
 | Convert from PDF | PDF to JPG | `/tools/pdf-to-jpg` |
 | Convert from PDF | PDF to Word | `/tools/pdf-to-word` |
+| Edit | Add Text | `/tools/add-text` |
 | Edit | Add Watermark | `/tools/watermark-pdf` |
 | Edit | Add Page Numbers | `/tools/page-numbers` |
 | Security | Sign PDF | `/tools/sign-pdf` |
@@ -48,7 +50,9 @@ Semua rute di atas sudah diuji end-to-end (upload → proses → download, cek c
 
 PRD aslinya menandai Compress/Repair/OCR sebagai proses server (Ghostscript, Tesseract headless). Supaya tetap konsisten dengan arsitektur "client-side only", ketiganya diimplementasi ulang pakai teknik yang genuinely jalan di browser:
 
-- **Compress PDF** — bukan re-render seluruh halaman jadi gambar (itu akan merusak teks vector). Tool ini mencari setiap gambar yang di-embed di dalam PDF — baik JPEG (`DCTDecode`) maupun raw bitmap `FlateDecode` (DeviceGray/DeviceRGB 8bpc, umum untuk screenshot/"print to PDF"/gambar asal PNG) — meng-kompres ulang lewat `<canvas>` di level kualitas/resolusi pilihan, lalu menaruh kembali bytes yang lebih kecil ke object PDF yang sama. Gambar dengan soft mask (transparansi) tetap ikut dikompres (viewer me-resample mask-nya independen, sesuai ISO 32000-2 §8.9.6); yang dilewati hanya gambar dengan stencil/color-key `Mask`, Indexed/CMYK/ICC color space, atau filter berantai, karena berisiko rusak kalau ikut diproses. Teks & vector tidak disentuh sama sekali. Ada juga mode "Target ukuran maksimum" (mis. ≤10MB) yang mencoba beberapa tingkat kompresi berurutan sampai tercapai. PDF yang isinya teks murni (tanpa gambar) wajar tidak banyak mengecil — itu bukan bug, tapi cara kerja tool ini didokumentasikan di UI-nya sendiri.
+- **Compress PDF** — bukan re-render seluruh halaman jadi gambar (itu akan merusak teks vector). Tool ini mencari setiap gambar yang di-embed di dalam PDF — JPEG (`DCTDecode`) maupun raw bitmap `FlateDecode` 8bpc di DeviceGray/DeviceRGB/DeviceCMYK **atau** `[/ICCBased ref]`/`CalRGB`/`CalGray` yang membungkus jumlah komponen yang sama (umum di PDF dari tool desain seperti Canva/Figma — hampir semua gambarnya ditandai ICCBased, bukan Device* polos, walau layout byte-nya identik) — meng-kompres ulang lewat `<canvas>` di level kualitas/resolusi pilihan, lalu menaruh kembali bytes yang lebih kecil ke object PDF yang sama. CMYK dikonversi ke RGB dengan formula sederhana (bukan color-managed, tapi jauh lebih baik daripada dilewati sama sekali). Gambar dengan soft mask (transparansi) tetap ikut dikompres (viewer me-resample mask-nya independen, sesuai ISO 32000-2 §8.9.6); yang dilewati hanya gambar dengan stencil/color-key `Mask`, color space Indexed, JPEG2000 (`JPXDecode`), atau filter berantai, karena berisiko rusak kalau ikut diproses. Teks & vector tidak disentuh sama sekali. Ada juga mode "Target ukuran maksimum" (mis. ≤10MB) yang mencoba beberapa tingkat kompresi berurutan sampai tercapai. PDF yang isinya teks murni (tanpa gambar) wajar tidak banyak mengecil — itu bukan bug, tapi cara kerja tool ini didokumentasikan di UI-nya sendiri.
+
+  **Bug yang diperbaiki:** sebelumnya, color space `ICCBased` (bentuk yang paling umum dipakai PDF hasil export Canva/desain, bukan sekadar edge case) sama sekali tidak dikenali — deteksinya hanya menerima nama literal `/DeviceGray`/`/DeviceRGB`, sehingga PDF dari Canva nyaris tidak mengecil sama sekali (diuji dengan file presentasi Canva nyata 32.9MB, 139 gambar: sebelum perbaikan gagal turun dari ~29.6MB walau sudah level paling agresif, karena 128 dari 139 gambarnya — nyaris semua isi filenya — diam-diam dilewati; setelah diperbaiki, file yang sama turun ke 1.8MB dalam ~5 detik untuk target 2MB). Hasilnya diverifikasi dengan membuka ulang PDF-nya (jumlah halaman tetap sama), mengekstrak salah satu gambar hasil kompresi untuk dicek visual, dan me-render ulang beberapa halaman penuh lewat tool PDF to JPG proyek ini sendiri untuk memastikan teks, vector, dan transparansi tetap komposit dengan benar.
 - **Repair PDF** — parse file selenggang mungkin (skip object yang rusak alih-alih berhenti), lalu tulis ulang strukturnya dari nol. Efektif untuk xref table/struktur yang korup; tidak bisa merekonstruksi data yang memang hilang/terpotong.
 - **OCR PDF** — setiap halaman di-render jadi gambar, dibaca lewat Tesseract (WASM, jalan di Web Worker), lalu digabung jadi satu PDF baru berisi gambar halaman + lapisan teks tak terlihat yang posisinya presisi (fitur PDF-output bawaan Tesseract sendiri, bukan hasil hitung manual). Hasilnya: PDF yang teksnya bisa di-select & dicari.
 
@@ -65,6 +69,18 @@ Merantai beberapa tool sekaligus dalam satu sesi — **tanpa perlu download di a
 Secara teknis ini bukan hasil refactor tool-tool yang sudah ada (biar tidak berisiko merusak yang sudah teruji) — tiap langkah adalah komponen baru di `src/components/workflow/` yang memanggil fungsi `lib/pdf/*.ts` yang sama persis, memakai ulang hook & komponen interaktif yang sama (`usePdfPages`, `PageThumbnailGrid`, `PdfPagePreview`, `SignatureOverlayBox`, dll). Sign PDF di dalam workflow sengaja dibatasi satu tanda tangan per langkah (bukan multi-tanda tangan seperti versi standalone) — untuk tanda tangan kedua tinggal tambahkan langkah "Tanda Tangani" lagi.
 
 Fitur yang butuh server atau yang mengubah byte PDF jadi tidak bisa diedit lagi oleh pdf-lib (Protect PDF/enkripsi, Compress, OCR, Repair) sengaja tidak dimasukkan ke rantai workflow — tool-tool itu lebih cocok jadi langkah terakhir yang berdiri sendiri setelah file di-download.
+
+### Add Text
+
+Tempel teks bebas ke posisi mana pun di halaman — judul, catatan, label, apa saja — dengan kontrol penuh: 15 pilihan font, ukuran (pt), warna, bold, italic, perataan (kiri/tengah/kanan/kiri-kanan), dan jenis daftar (bullet/angka/huruf/angka romawi), per potongan teks. Seperti Sign PDF, bisa **menambahkan beberapa teks sekaligus** — masing-masing dengan gaya dan halaman targetnya sendiri (satu halaman tertentu atau semua halaman) — diseret untuk dipindah dan ditarik di pojok untuk mengatur lebar (teks otomatis word-wrap mengikuti lebar itu). Tiap baris baru (Enter) di kotak teks jadi satu paragraf/item daftar terpisah.
+
+**Font** — 3 font standar PDF bawaan `pdf-lib` (Helvetica/Times New Roman/Courier, masing-masing dengan varian bold/italic/bold-italic penuh, tidak perlu di-embed) plus 12 font tambahan (Roboto, Open Sans, Lato, Montserrat, Poppins, Nunito, Merriweather, Playfair Display, PT Serif, Source Code Pro, Oswald, Caveat) yang di-embed lewat `@pdf-lib/fontkit` dari file WOFF yang di-self-host (lihat `scripts/copy-custom-fonts.mjs`). 12 font tambahan ini sengaja **bukan font bawaan Microsoft Word** (Calibri, Cambria, Segoe UI, Tahoma, dll itu berlisensi Microsoft dan tidak bisa dibagikan ulang secara legal di aplikasi web terbuka) — melainkan font Google Fonts berlisensi OFL yang setara secara kategori (sans-serif modern, serif elegan, monospace, tulisan tangan, dst). Font tambahan ini hanya menyediakan varian regular + bold (tanpa italic); toggle italic otomatis nonaktif saat font semacam itu dipilih, jujur tidak berpura-pura mendukung sesuatu yang tidak ada filenya.
+
+**Perataan & daftar** diterapkan per potongan teks (bukan per-karakter) — rata kiri-kanan (justify) meregangkan jarak antar kata di tiap baris kecuali baris terakhir paragraf (konvensi tipografi standar), dihitung manual lewat `font.widthOfTextAtSize()` karena `drawText` pdf-lib tidak punya justify bawaan. Baris lanjutan hasil word-wrap pada item berpenomoran diberi indent supaya sejajar dengan teks di baris pertama, bukan ikut di bawah marker-nya.
+
+Pratinjau di layar memakai web font sebagai perkiraan visual dari font PDF yang sebenarnya; hasilnya sangat dekat tapi titik pindah baris saat teks panjang bisa sedikit berbeda dari hasil akhir karena metrik font yang sedikit berbeda — perbedaan ini didisclose di UI. Kotak teks di pratinjau murni alat bantu posisi/lebar, bukan pembatas tinggi yang keras — persis seperti PDF yang dihasilkan, teks tetap mengalir ke bawah apa adanya kalau lebih panjang dari tinggi kotak, tidak terpotong.
+
+Diverifikasi dengan fixture 2 halaman: embedding font custom (Playfair Display, Roboto) dicek tampil benar lewat render ulang ke JPG; kombinasi daftar beraksara (a./b./c.) + rata kanan + word-wrap dicek dalam kasus terisolasi — marker, indent baris lanjutan, dan perataan kanan semuanya presisi; kombinasi daftar angka + bold + rata kiri-kanan dicek meregangkan spasi antar kata pada baris penuh tapi tidak pada baris terakhir paragraf/item pendek, sesuai konvensi.
 
 ### Sign PDF
 
@@ -100,11 +116,13 @@ Satu-satunya tool di luar kategori PDF: tempel paragraf campuran Indonesia-Inggr
 
 Di luar scope PRD (yang murni seputar PDF), tapi fitur yang sama relevan: pecah satu file audio jadi beberapa bagian berdasarkan durasi menit yang Anda tentukan. Misal audio 1 jam di-split per 20 menit → 3 file (20, 20, 20 menit); audio 2 jam di-split per 45 menit → 3 file (45, 45, 30 menit) — bagian terakhir otomatis jadi sisa durasinya, tidak dipaksakan sama panjang.
 
-Cara kerjanya: file audio didekode penuh di memori lewat Web Audio API (`AudioContext.decodeAudioData`) begitu dipilih (durasi totalnya langsung tampil), lalu tiap bagian dipotong dari data PCM mentah sesuai rentang waktu yang dihitung, dan di-encode ulang jadi `.mp3` (128kbps) lewat [@breezystack/lamejs](https://github.com/shijinyu/lamejs) — encoder MP3 murni JavaScript (bukan WASM), jadi tidak perlu asset tambahan yang di-self-host. Kalau hasilnya cuma 1 bagian (split length ≥ durasi total), langsung didownload sebagai satu `.mp3`; kalau lebih dari 1, otomatis dibundel jadi satu `.zip`.
+Cara kerjanya: file audio dibaca durasinya lewat `ffprobe` (`@ffmpeg/ffmpeg` + `@ffmpeg/core`, WebAssembly, self-hosted — lihat `scripts/copy-ffmpeg-assets.mjs`) tanpa mendekode satu pun sample audionya. Tiap bagian lalu dipotong langsung dari file asli lewat ffmpeg `-ss`/`-t` + `-c copy` (**stream copy**, bukan decode+encode ulang) — ffmpeg cuma mem-remux byte yang relevan ke container baru, codec/format/kualitas sumbernya tidak disentuh sama sekali. Kalau hasilnya cuma 1 bagian (split length ≥ durasi total), langsung didownload dengan ekstensi aslinya; kalau lebih dari 1, otomatis dibundel jadi satu `.zip`.
 
-Diverifikasi dengan fixture WAV 150 detik (2:30): preview pembagian di UI (1:00, 1:00, 0:30) dicek cocok sebelum diproses, lalu hasil akhirnya diverifikasi dengan `ffprobe` (bukan kode sendiri) — durasi tiap file MP3 keluar persis sesuai target (ditambah ~24ms delay encoder LAME yang memang standar/tidak terhindarkan di format MP3), dan `ffmpeg astats` mengonfirmasi kontennya benar-benar berisi audio (bukan senyap/korup).
+**Kenapa bukan decode-semua-ke-memori (Web Audio API) seperti versi awal:** pendekatan pertama fitur ini decode seluruh file ke PCM mentah via `AudioContext.decodeAudioData()` sebelum memotongnya. Untuk rekaman di atas ±1 jam (stereo), itu berarti >1GB data mentah sekaligus di memori tab — cukup besar untuk memicu crash "Aw, Snap!" di Chrome. Pindah ke ffmpeg.wasm dengan stream copy menghilangkan masalah ini sepenuhnya: memori yang dipakai sebanding dengan ukuran file terkompresi (bukan durasinya), dan karena tidak ada decode/encode sama sekali, hasilnya juga jauh lebih cepat serta tidak kehilangan kualitas atau berubah format.
 
-Batasan yang jujur: setiap bagian di-render ulang sebagai MP3, jadi kalau file aslinya format lain (wav/ogg/m4a/flac), hasilnya selalu berubah ke `.mp3` dan kualitasnya mengikuti bitrate 128kbps tadi — bukan proses "potong tanpa re-encode" yang lossless. Karena seluruh audio didekode penuh ke PCM mentah di memori sebelum dipotong, file yang sangat panjang (berjam-jam, terutama stereo/sample rate tinggi) bisa memakai memori browser cukup besar — ini didisclose di UI sebelum diproses.
+Diverifikasi dengan dua fixture nyata: (1) WAV 150 detik (2:30) — preview pembagian di UI (1:00, 1:00, 0:30) dicek cocok, hasil akhir diverifikasi `ffprobe` (bukan kode sendiri) dan durasinya presisi sampai sub-milidetik, format tetap WAV (tidak berubah jadi MP3). (2) AAC/`.m4a` 97MB berdurasi 100 menit (kasus nyata yang sebelumnya bikin crash) — durasi terbaca dalam ~2 detik, dan seluruh proses split jadi 5 bagian 20 menit selesai dalam ~1.3 detik tanpa crash sama sekali, dengan setiap bagian diverifikasi persis 20:00 via `ffprobe`, codec/container tetap AAC/m4a. Sebagai bonus, pendekatan ini juga menangani codec yang sebelumnya gagal di Web Audio API (misal Apple Lossless/ALAC di dalam `.m4a`), karena stream copy tidak perlu men-decode codec apa pun.
+
+Catatan: ffmpeg.wasm sendiri berlisensi GPL-2.0-or-later (beda dari `docx`/`pdf-lib`/dll yang MIT) — dipakai sebagai modul WASM terpisah yang dimuat browser saat runtime, bukan dikompilasi/di-link ke dalam source code proyek ini.
 
 ## Privasi
 
@@ -131,17 +149,22 @@ src/
   components/workflow/              # satu komponen "step" per tool, dipakai oleh /tools/workflow
   hooks/use-pdf-thumbnails.ts       # render halaman PDF jadi thumbnail untuk grid pemilih
   hooks/use-pdf-pages.ts            # render thumbnail + render resolusi tinggi on-demand (dipakai Sign PDF & Remove Signature)
-  hooks/use-drag-resize-box.ts      # logic drag/resize pointer bersama (overlay tanda tangan & kotak redaksi)
+  hooks/use-drag-resize-box.ts      # logic drag/resize pointer bersama (overlay tanda tangan, teks & kotak redaksi)
+  lib/pdf/addText.ts                # gambar teks bebas (font/ukuran/warna/bold/italic/perataan/daftar) untuk Add Text
+  lib/pdf/fonts.ts                  # katalog 15 font (3 standar pdf-lib + 12 custom) + loader byte font custom
   lib/pdf/removeMarks.ts            # deteksi/hapus Image XObject + terapkan kotak penutup (Remove Signature/Stamp)
   lib/pdf/pdfToWord.ts              # ekstrak teks+posisi+font via pdf.js, susun jadi .docx via docx
   lib/pdf/*.ts                      # semua logic pdf-lib/pdfjs/qpdf/tesseract, terpisah dari UI
   lib/dictionary/*.ts               # tokenizer + classifier + export untuk Dictionary ID-EN
-  lib/audio/splitAudio.ts           # decode (Web Audio API) + potong PCM + encode ulang mp3 (lamejs) untuk Split Audio
+  lib/audio/splitAudio.ts           # probe durasi (ffprobe) + potong audio via ffmpeg.wasm stream copy untuk Split Audio
   lib/tools.ts                      # katalog tool (dipakai landing page & header halaman tool)
   data/dict/*.json                  # daftar 10k kata ID & EN tersering, di-vendor statis (lihat SOURCE.md)
 scripts/copy-qpdf-assets.mjs        # postinstall: salin worker+wasm qpdf.js ke public/qpdf/
 scripts/copy-tesseract-assets.mjs   # postinstall: salin worker+wasm tesseract.js ke public/tesseract/
 scripts/copy-pdfjs-assets.mjs       # postinstall: salin standard_fonts pdf.js ke public/pdfjs/ (metrik font standar)
+scripts/copy-ffmpeg-assets.mjs      # postinstall: salin core ffmpeg.wasm (ESM) ke public/ffmpeg/
+scripts/patch-ffmpeg-worker.mjs     # postinstall: patch @ffmpeg/ffmpeg agar kompatibel dengan Turbopack (lihat komentar di file)
+scripts/copy-custom-fonts.mjs       # postinstall: salin file WOFF regular+bold dari paket @fontsource/* ke public/fonts/
 ```
 
 ## Yang sengaja di luar scope MVP ini

@@ -144,6 +144,14 @@ export const tools: ToolMeta[] = [
     available: true,
   },
   {
+    slug: "add-text",
+    name: "Add Text",
+    shortDesc: "Tambahkan teks bebas dengan font, ukuran, warna, bold/italic sendiri",
+    category: "edit",
+    icon: "Type",
+    available: true,
+  },
+  {
     slug: "watermark-pdf",
     name: "Add Watermark",
     shortDesc: "Tambahkan watermark teks ke semua halaman",

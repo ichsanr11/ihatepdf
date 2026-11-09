@@ -15,9 +15,10 @@ import { Label } from "@/components/ui/label";
 import { getToolBySlug } from "@/lib/tools";
 import {
   computeSegmentPlan,
-  decodeAudioFile,
   formatDuration,
-  splitAudioBuffer,
+  mimeTypeForFileName,
+  probeDurationSec,
+  splitAudioFile,
   zipAudioSegments,
 } from "@/lib/audio/splitAudio";
 import { downloadBytes } from "@/lib/download";
@@ -27,8 +28,8 @@ const tool = getToolBySlug("split-audio")!;
 
 export default function SplitAudioPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
-  const [decoding, setDecoding] = useState(false);
+  const [durationSec, setDurationSec] = useState<number | null>(null);
+  const [probing, setProbing] = useState(false);
   const [segmentMinutes, setSegmentMinutes] = useState(20);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -36,40 +37,38 @@ export default function SplitAudioPage() {
   const [result, setResult] = useState<{ bytes: Uint8Array; fileName: string } | null>(null);
 
   const plan = useMemo(
-    () => (audioBuffer ? computeSegmentPlan(audioBuffer.duration, segmentMinutes) : []),
-    [audioBuffer, segmentMinutes]
+    () => (durationSec ? computeSegmentPlan(durationSec, segmentMinutes) : []),
+    [durationSec, segmentMinutes]
   );
 
   async function handleFile(files: File[]) {
     const f = files[0];
     setError(null);
-    setDecoding(true);
+    setProbing(true);
     try {
-      const decoded = await decodeAudioFile(f);
+      const duration = await probeDurationSec(f);
       setFile(f);
-      setAudioBuffer(decoded);
-      const totalMinutes = Math.max(1, Math.floor(decoded.duration / 60));
+      setDurationSec(duration);
+      const totalMinutes = Math.max(1, Math.floor(duration / 60));
       setSegmentMinutes((prev) => Math.min(prev, totalMinutes));
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       setError(
-        `Gagal membaca file audio. Pastikan formatnya didukung browser (mp3, wav, ogg, m4a). Detail teknis: ${detail}`
+        `Gagal membaca file audio. Pastikan formatnya didukung (mp3, wav, ogg, m4a, flac, dll). Detail teknis: ${detail}`
       );
     } finally {
-      setDecoding(false);
+      setProbing(false);
     }
   }
 
   async function handleSplit() {
-    if (!file || !audioBuffer || plan.length === 0) return;
+    if (!file || !durationSec || plan.length === 0) return;
     setBusy(true);
     setError(null);
     setProgress({ done: 0, total: plan.length });
     try {
       const name = baseName(file.name);
-      const segments = await splitAudioBuffer(audioBuffer, plan, name, (done, total) =>
-        setProgress({ done, total })
-      );
+      const segments = await splitAudioFile(file, plan, (done, total) => setProgress({ done, total }));
 
       if (segments.length === 1) {
         setResult({ bytes: segments[0].bytes, fileName: segments[0].fileName });
@@ -77,8 +76,9 @@ export default function SplitAudioPage() {
         const zipped = await zipAudioSegments(segments, `${name}_split.zip`);
         setResult(zipped);
       }
-    } catch {
-      setError("Gagal memisahkan audio. Coba file lain atau kurangi durasi per bagian.");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      setError(`Gagal memisahkan audio. Detail teknis: ${detail}`);
     } finally {
       setBusy(false);
       setProgress(null);
@@ -87,13 +87,13 @@ export default function SplitAudioPage() {
 
   function reset() {
     setFile(null);
-    setAudioBuffer(null);
+    setDurationSec(null);
     setResult(null);
     setError(null);
     setProgress(null);
   }
 
-  const mime = result?.fileName.endsWith(".zip") ? "application/zip" : "audio/mp3";
+  const mime = result?.fileName.endsWith(".zip") ? "application/zip" : mimeTypeForFileName(result?.fileName ?? "");
 
   return (
     <div className="container max-w-2xl py-12">
@@ -115,10 +115,10 @@ export default function SplitAudioPage() {
               accept="audio/*"
               onFiles={handleFile}
               label="Pilih file audio"
-              hint="mp3, wav, ogg, m4a"
+              hint="mp3, wav, ogg, m4a, flac"
             />
-          ) : decoding ? (
-            <Spinner label="Membaca durasi audio..." />
+          ) : probing ? (
+            <Spinner label="Memuat engine audio & membaca durasi... (pertama kali bisa beberapa detik)" />
           ) : busy ? (
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-6">
               <p className="text-sm font-medium">
@@ -127,11 +127,11 @@ export default function SplitAudioPage() {
               <Progress value={progress ? (progress.done / progress.total) * 100 : 0} />
             </div>
           ) : (
-            audioBuffer && (
+            durationSec && (
               <>
                 <p className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">{file.name}</span> · durasi{" "}
-                  {formatDuration(audioBuffer.duration)}
+                  {formatDuration(durationSec)}
                 </p>
 
                 <div>
@@ -161,7 +161,7 @@ export default function SplitAudioPage() {
                   </div>
                 )}
 
-                <InfoBanner message="Diproses 100% di browser (tidak diunggah ke mana pun). Tiap bagian disimpan ulang sebagai MP3 128kbps — jadi kalau file asli bukan mp3, formatnya berubah, dan kualitasnya mengikuti bitrate ini. Audio sangat panjang (berjam-jam) bisa memakai memori browser cukup besar karena seluruh file didekode penuh sebelum dipotong." />
+                <InfoBanner message="Diproses 100% di browser (tidak diunggah ke mana pun) pakai ffmpeg.wasm. Tiap bagian dipotong langsung dari file asli tanpa decode/re-encode ulang — format, codec, dan kualitas tetap sama persis seperti sumbernya, dan tidak ada batas durasi praktis karena file tidak pernah dimuat penuh sebagai audio mentah ke memori." />
 
                 <Button size="lg" disabled={plan.length === 0} onClick={handleSplit} className="self-start">
                   <AudioWaveform className="h-4 w-4" />

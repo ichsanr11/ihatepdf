@@ -61,9 +61,19 @@ export function usePdfPages() {
     const pdf = pdfRef.current;
     if (!pdf) return null;
     const page = await pdf.getPage(pageNumber);
-    const baseWidth = page.getViewport({ scale: 1 }).width;
-    const canvas = await renderPageToCanvas(pdf, pageNumber, targetWidth / baseWidth);
-    return { dataUrl: canvas.toDataURL("image/jpeg", 0.92), width: canvas.width, height: canvas.height };
+    const baseViewport = page.getViewport({ scale: 1 });
+    const canvas = await renderPageToCanvas(pdf, pageNumber, targetWidth / baseViewport.width);
+    return {
+      dataUrl: canvas.toDataURL("image/jpeg", 0.92),
+      width: canvas.width,
+      height: canvas.height,
+      // The page's actual size in PDF points (scale=1) — distinct from the
+      // raster pixel dimensions above, needed by callers (Add Text) that
+      // have to convert a point-based font size into a CSS pixel size that
+      // stays correct regardless of how large the preview is rendered.
+      pageWidthPt: baseViewport.width,
+      pageHeightPt: baseViewport.height,
+    };
   }, []);
 
   const reset = useCallback(() => {

@@ -69,7 +69,7 @@ export default function CompressPdfPage() {
 
         setResult({ bytes: res.bytes, fileName: `${baseName(file.name)}_compressed.pdf` });
       } else {
-        const res = await compressPdf(bytes, level);
+        const res = await compressPdf(bytes, level, (n, total) => setAttempt({ n, total }));
 
         if (res.imagesTotal === 0) {
           setNote({
@@ -148,11 +148,11 @@ export default function CompressPdfPage() {
               <p className="text-sm font-medium">
                 {mode === "target"
                   ? `Mencoba pengaturan kompresi ${attempt?.n ?? 1} dari ${attempt?.total ?? "…"}...`
-                  : "Mengompres gambar di dalam PDF..."}
+                  : attempt
+                    ? `Mengompres gambar ${attempt.n} dari ${attempt.total}...`
+                    : "Mengompres gambar di dalam PDF..."}
               </p>
-              {mode === "target" && attempt && (
-                <Progress value={(attempt.n / attempt.total) * 100} />
-              )}
+              {attempt && attempt.total > 0 && <Progress value={(attempt.n / attempt.total) * 100} />}
             </div>
           ) : (
             <>

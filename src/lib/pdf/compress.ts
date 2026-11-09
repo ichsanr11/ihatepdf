@@ -4,7 +4,9 @@ import {
   PDFRawStream,
   PDFArray,
   PDFNumber,
+  PDFStream,
   decodePDFRawStream,
+  type PDFContext,
   type PDFDict,
 } from "pdf-lib";
 
@@ -65,6 +67,11 @@ const COLOR_SPACE = PDFName.of("ColorSpace");
 const DECODE_PARMS = PDFName.of("DecodeParms");
 const DEVICE_GRAY = PDFName.of("DeviceGray");
 const DEVICE_RGB = PDFName.of("DeviceRGB");
+const DEVICE_CMYK = PDFName.of("DeviceCMYK");
+const ICC_BASED = PDFName.of("ICCBased");
+const CAL_RGB = PDFName.of("CalRGB");
+const CAL_GRAY = PDFName.of("CalGray");
+const N = PDFName.of("N");
 
 /**
  * "Compress PDF" for a tool that can't shell out to Ghostscript: instead of
@@ -77,24 +84,29 @@ const DEVICE_RGB = PDFName.of("DeviceRGB");
  *
  * Two image encodings are handled, covering the vast majority of
  * real-world files:
- *  - DCTDecode (JPEG) — the stream bytes already *are* a JPEG file.
- *  - FlateDecode raw bitmaps in DeviceGray/DeviceRGB at 8 bits/component —
- *    common for screenshots, "print to PDF" output, and images that
- *    started life as PNG. Decoded via pdf-lib's own inflate, then treated
- *    like any other pixel buffer.
- * Anything else (JPX, Indexed/CMYK color spaces, 1-bit line art, chained
- * filters, custom Decode arrays, or a stencil Mask that depends on exact
+ *  - DCTDecode (JPEG) — the stream bytes already *are* a JPEG file, in
+ *    whatever color space it declares (we don't need to know).
+ *  - FlateDecode raw bitmaps at 8 bits/component in DeviceGray/DeviceRGB/
+ *    DeviceCMYK, or — just as commonly in files from design tools like
+ *    Canva/Figma — the same component counts wrapped as `[/ICCBased ref]`
+ *    (or CalGray/CalRGB). Common for screenshots, "print to PDF" output,
+ *    and images that started life as PNG. Decoded via pdf-lib's own
+ *    inflate, then treated like any other pixel buffer (CMYK is converted
+ *    to RGB with a plain, non-color-managed formula).
+ * Anything else (JPX/JPEG2000, Indexed color space, 1-bit line art, chained
+ * filters, a custom Decode array, or a stencil Mask that depends on exact
  * pixel values) is left untouched rather than risk corrupting it — see
- * isPlainDctImage / isRawBitmapImage below. A soft mask (SMask) is fine to
+ * isPlainDctImage / rawBitmapInfo below. A soft mask (SMask) is fine to
  * recompress around, since viewers resample it independently either way
  * (ISO 32000-2 §8.9.6).
  */
 export async function compressPdf(
   sourceBytes: ArrayBuffer,
-  level: CompressLevel
+  level: CompressLevel,
+  onProgress?: (done: number, total: number) => void
 ): Promise<CompressResult> {
   const { quality, maxDim } = LEVELS[level];
-  return applyCompression(sourceBytes, quality, maxDim);
+  return applyCompression(sourceBytes, quality, maxDim, onProgress);
 }
 
 /**
@@ -151,24 +163,30 @@ export async function compressPdfToTargetSize(
 async function applyCompression(
   sourceBytes: ArrayBuffer,
   quality: number,
-  maxDim: number
+  maxDim: number,
+  onProgress?: (done: number, total: number) => void
 ): Promise<CompressResult> {
   const doc = await PDFDocument.load(sourceBytes, {
     ignoreEncryption: true,
     updateMetadata: false,
   });
   const context = doc.context;
+  const allObjects = context.enumerateIndirectObjects();
+  const estimatedImageCount = allObjects.filter(
+    ([, obj]) => obj instanceof PDFRawStream && obj.dict.lookup(SUBTYPE) === IMAGE
+  ).length;
 
   let imagesRecompressed = 0;
   let imagesTotal = 0;
 
-  for (const [ref, obj] of context.enumerateIndirectObjects()) {
+  for (const [ref, obj] of allObjects) {
     if (!(obj instanceof PDFRawStream)) continue;
     const dict = obj.dict;
 
     const subtype = dict.lookup(SUBTYPE);
     if (subtype !== IMAGE) continue;
     imagesTotal++;
+    onProgress?.(imagesTotal, estimatedImageCount);
 
     // A stencil/color-key Mask depends on exact original pixel values —
     // recompressing would break it. A soft mask (SMask) is a separate
@@ -176,7 +194,7 @@ async function applyCompression(
     if (dict.lookup(MASK)) continue;
 
     const isDct = isPlainDctImage(dict);
-    const rawBitmap = !isDct ? rawBitmapInfo(dict) : null;
+    const rawBitmap = !isDct ? rawBitmapInfo(dict, context) : null;
     if (!isDct && !rawBitmap) continue;
 
     try {
@@ -230,16 +248,49 @@ function isPlainDctImage(dict: PDFDict): boolean {
 interface RawBitmapInfo {
   width: number;
   height: number;
-  components: 1 | 3;
+  components: 1 | 3 | 4;
+}
+
+/**
+ * Resolves a ColorSpace entry to a component count we know how to decode:
+ * 1 (gray), 3 (RGB), or 4 (CMYK). Handles both the plain Device* names and
+ * the far more common real-world case of `[/ICCBased <stream ref>]` (and
+ * the rarer `/CalRGB`/`/CalGray`) — design tools like Canva/Figma almost
+ * always tag exported images with an embedded ICC profile rather than a
+ * bare Device space, even though the underlying sample layout is identical
+ * (ISO 32000-1 §8.6.5.5: an ICCBased space's component count always equals
+ * its profile's `/N`). We don't apply the actual ICC transform, just treat
+ * the samples as sRGB/gray/CMYK — the same approximation most lightweight
+ * PDF compressors make, and imperceptible for re-encoding purposes. Indexed
+ * color spaces are a different sample layout entirely (palette lookups)
+ * and aren't handled here.
+ */
+function colorSpaceComponents(colorSpace: unknown, context: PDFContext): 1 | 3 | 4 | null {
+  if (colorSpace === DEVICE_GRAY) return 1;
+  if (colorSpace === DEVICE_RGB) return 3;
+  if (colorSpace === DEVICE_CMYK) return 4;
+  if (colorSpace instanceof PDFArray) {
+    const tag = colorSpace.get(0);
+    if (tag === CAL_GRAY) return 1;
+    if (tag === CAL_RGB) return 3;
+    if (tag === ICC_BASED) {
+      const iccStream = context.lookup(colorSpace.get(1));
+      if (!(iccStream instanceof PDFStream)) return null;
+      const n = iccStream.dict.lookup(N);
+      const nVal = n instanceof PDFNumber ? n.asNumber() : null;
+      return nVal === 1 || nVal === 3 || nVal === 4 ? nVal : null;
+    }
+  }
+  return null;
 }
 
 /**
  * Recognizes a "plain" Flate-encoded raw bitmap we know how to decode
- * safely: single FlateDecode filter, 8 bits/component, DeviceGray or
- * DeviceRGB, and no custom Decode array (which could invert/remap
- * samples in a way we're not accounting for).
+ * safely: single FlateDecode filter, 8 bits/component, a resolvable
+ * gray/RGB/CMYK color space, and no custom Decode array (which could
+ * invert/remap samples in a way we're not accounting for).
  */
-function rawBitmapInfo(dict: PDFDict): RawBitmapInfo | null {
+function rawBitmapInfo(dict: PDFDict, context: PDFContext): RawBitmapInfo | null {
   const filter = dict.lookup(FILTER);
   if (filter !== FLATE_DECODE) return null;
   if (dict.lookup(DECODE)) return null;
@@ -247,11 +298,8 @@ function rawBitmapInfo(dict: PDFDict): RawBitmapInfo | null {
   const bpc = dict.lookup(BITS_PER_COMPONENT);
   if (!(bpc instanceof PDFNumber) || bpc.asNumber() !== 8) return null;
 
-  const colorSpace = dict.lookup(COLOR_SPACE);
-  let components: 1 | 3;
-  if (colorSpace === DEVICE_GRAY) components = 1;
-  else if (colorSpace === DEVICE_RGB) components = 3;
-  else return null; // Indexed, DeviceCMYK, ICCBased, etc. — not handled
+  const components = colorSpaceComponents(dict.lookup(COLOR_SPACE), context);
+  if (!components) return null; // Indexed, unresolvable ICC profile, etc. — not handled
 
   const widthObj = dict.lookup(WIDTH);
   const heightObj = dict.lookup(HEIGHT);
@@ -305,11 +353,21 @@ async function recompressRawBitmap(
       out[j + 2] = v;
       out[j + 3] = 255;
     }
-  } else {
+  } else if (components === 3) {
     for (let i = 0, j = 0; i < expectedLen; i += 3, j += 4) {
       out[j] = decoded[i];
       out[j + 1] = decoded[i + 1];
       out[j + 2] = decoded[i + 2];
+      out[j + 3] = 255;
+    }
+  } else {
+    // Naive (non-color-managed) CMYK -> RGB — only reached with no custom
+    // Decode array present, so samples follow the PDF default (0 = no ink).
+    for (let i = 0, j = 0; i < expectedLen; i += 4, j += 4) {
+      const k = decoded[i + 3] / 255;
+      out[j] = Math.round(255 * (1 - decoded[i] / 255) * (1 - k));
+      out[j + 1] = Math.round(255 * (1 - decoded[i + 1] / 255) * (1 - k));
+      out[j + 2] = Math.round(255 * (1 - decoded[i + 2] / 255) * (1 - k));
       out[j + 3] = 255;
     }
   }

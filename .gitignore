@@ -24,8 +24,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated at postinstall from node_modules/qpdf.js, tesseract.js, pdfjs-dist
+# generated at postinstall from node_modules/qpdf.js, tesseract.js, pdfjs-dist, @ffmpeg/core, @fontsource/*
 # (see scripts/copy-*-assets.mjs)
 /public/qpdf/
 /public/tesseract/
 /public/pdfjs/
+/public/ffmpeg/
+/public/fonts/

@@ -11,6 +11,7 @@ import { Spinner } from "@/components/spinner";
 import { Button } from "@/components/ui/button";
 import { MergeStep } from "@/components/workflow/merge-step";
 import { PageOpsStep, type PageOpsMode } from "@/components/workflow/page-ops-step";
+import { AddTextStep } from "@/components/workflow/add-text-step";
 import { WatermarkStep } from "@/components/workflow/watermark-step";
 import { PageNumbersStep } from "@/components/workflow/page-numbers-step";
 import { SignStep } from "@/components/workflow/sign-step";
@@ -108,6 +109,7 @@ export default function WorkflowPage() {
       onCancel: () => setActiveStep(null),
     };
     if (kind === "merge") return <MergeStep {...stepProps} />;
+    if (kind === "add-text") return <AddTextStep {...stepProps} />;
     if (kind === "watermark") return <WatermarkStep {...stepProps} />;
     if (kind === "page-numbers") return <PageNumbersStep {...stepProps} />;
     if (kind === "sign") return <SignStep {...stepProps} />;

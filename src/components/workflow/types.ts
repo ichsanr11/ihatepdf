@@ -20,6 +20,7 @@ export type StepKind =
   | "extract-pages"
   | "rotate"
   | "deskew"
+  | "add-text"
   | "watermark"
   | "page-numbers"
   | "sign"
@@ -39,6 +40,7 @@ export const STEP_TYPES: StepTypeMeta[] = [
   { kind: "extract-pages", name: "Ambil Halaman Tertentu", shortDesc: "Pilih halaman yang ingin disimpan", icon: "FilePlus2" },
   { kind: "rotate", name: "Putar Halaman", shortDesc: "Putar orientasi satu/semua halaman", icon: "RotateCw" },
   { kind: "deskew", name: "Luruskan Scan", shortDesc: "Luruskan halaman hasil scan yang miring", icon: "ScanLine" },
+  { kind: "add-text", name: "Tambah Teks", shortDesc: "Teks bebas dengan font, ukuran, warna, bold/italic", icon: "Type" },
   { kind: "watermark", name: "Tambah Watermark", shortDesc: "Watermark teks di semua halaman", icon: "Stamp" },
   { kind: "page-numbers", name: "Tambah Nomor Halaman", shortDesc: "Nomor halaman otomatis", icon: "Hash" },
   { kind: "sign", name: "Tanda Tangani", shortDesc: "Tempel satu tanda tangan di posisi yang Anda atur", icon: "Signature" },
